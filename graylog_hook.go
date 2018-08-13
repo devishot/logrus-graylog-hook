@@ -16,6 +16,9 @@ import (
 
 const StackTraceKey = "_stacktrace"
 
+var DEFAULT_SUFFIXES_TO_IGNORE = []string{"logrus/hooks.go", "logrus/entry.go", "logrus/logger.go", "logrus/exported.go", "asm_amd64.s"}
+
+
 // Set graylog.BufSize = <value> _before_ calling NewGraylogHook
 // Once the buffer is full, logging will start blocking, waiting for slots to
 // be available in the queue.
@@ -23,15 +26,16 @@ var BufSize uint = 8192
 
 // GraylogHook to send logs to a logging service compatible with the Graylog API and the GELF format.
 type GraylogHook struct {
-	Extra       map[string]interface{}
-	Host        string
-	Level       logrus.Level
-	gelfLogger  *Writer
-	buf         chan graylogEntry
-	wg          sync.WaitGroup
-	mu          sync.RWMutex
-	synchronous bool
-	blacklist   map[string]bool
+	Extra       			map[string]interface{}
+	Host        			string
+	Level       			logrus.Level
+	FileSuffixesToIgnore 		[]string
+	gelfLogger  			*Writer
+	buf         			chan graylogEntry
+	wg          			sync.WaitGroup
+	mu          			sync.RWMutex
+	synchronous 			bool
+	blacklist   			map[string]bool
 }
 
 // Graylog needs file and line params
@@ -97,7 +101,7 @@ func (hook *GraylogHook) Fire(entry *logrus.Entry) error {
 
 	// get caller file and line here, it won't be available inside the goroutine
 	// 1 for the function that called us.
-	file, line := getCallerIgnoringLogMulti(1)
+	file, line := hook.getCaller(1)
 
 	newData := make(map[string]interface{})
 	for k, v := range entry.Data {
@@ -259,6 +263,17 @@ func (hook *GraylogHook) Writer() *Writer {
 	return hook.gelfLogger
 }
 
+func (hook *GraylogHook) getCaller(callDepth int) (string, int) {
+	if len(hook.FileSuffixesToIgnore) == 0 {
+		return getCallerIgnoringLogMulti(callDepth)
+	}
+
+	arr := []string{}
+	arr = append(arr, hook.FileSuffixesToIgnore...)
+	arr = append(arr, DEFAULT_SUFFIXES_TO_IGNORE...)
+	return getCaller(callDepth+1, arr...)
+}
+
 // getCaller returns the filename and the line info of a function
 // further down in the call stack.  Passing 0 in as callDepth would
 // return info on the function calling getCallerIgnoringLog, 1 the
@@ -291,5 +306,5 @@ outer:
 
 func getCallerIgnoringLogMulti(callDepth int) (string, int) {
 	// the +1 is to ignore this (getCallerIgnoringLogMulti) frame
-	return getCaller(callDepth+1, "logrus/hooks.go", "logrus/entry.go", "logrus/logger.go", "logrus/exported.go", "asm_amd64.s")
+	return getCaller(callDepth+1, DEFAULT_SUFFIXES_TO_IGNORE...)
 }
